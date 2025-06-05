@@ -8,11 +8,15 @@
   <script src="https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/babel-standalone@7.22.5/babel.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/axios@1.4.0/dist/axios.min.js"></script>
-  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+  <link href="https://unpkg.com/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
 </head>
 <body>
   <div id="root"></div>
+  <div id="fallback" class="text-center text-red-500">
+    Se você vê esta mensagem, o React não carregou. Verifique o console do navegador (F12).
+  </div>
   <script type="text/babel">
+    console.log('Iniciando renderização do React...');
     const { useState, useEffect } = React;
 
     const SalaryRanker = () => {
@@ -140,7 +144,9 @@
       const handleSubmit = (e) => {
         e.preventDefault();
         if (!grossSalary || grossSalary <= 0) {
-          setError('Por favor, insira um salário bruto válido.');
+          setError('Por favor;
+
+, insira um salário bruto válido.');
           return;
         }
         setError('');
