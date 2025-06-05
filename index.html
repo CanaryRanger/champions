@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ranqueamento de Salários</title>
+  <script src="https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/babel-standalone@7.22.5/babel.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/axios@1.4.0/dist/axios.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+
+    const SalaryRanker = () => {
+      const [grossSalary, setGrossSalary] = useState('');
+      const [contractType, setContractType] = useState('CLT');
+      const [netSalary, setNetSalary] = useState(null);
+      const [rank, setRank] = useState(null);
+      const [location, setLocation] = useState(null);
+      const [error, setError] = useState('');
+
+      // Definição dos níveis do torneio
+      const tournamentLevels = [
+        { name: 'Rádio', min: 0, max: 1320, positions: 20 },
+        { name: 'Várzea', min: 1321, max: 2500, positions: 20 },
+        { name: 'Série D', min: 2501, max: 4000, positions: 20 },
+        { name: 'Série C', min: 4001, max: 6000, positions: 20 },
+        { name: 'Série B', min: 6001, max: 9000, positions: 20 },
+        { name: 'Série A', min: 9001, max: 15000, positions: 20 },
+        { name: 'Libertadores - Fase de Grupos', min: 15001, max: 25000, positions: 8 },
+        { name: 'Libertadores - Oitavas', min: 25001, max: 35000, positions: 8 },
+        { name: 'Libertadores - Quartas', min: 35001, max: 50000, positions: 4 },
+        { name: 'Libertadores - Semifinal', min: 50001, max: 75000, positions: 2 },
+        { name: 'Libertadores - Final', min: 75001, max: 100000, positions: 1 },
+        { name: 'Champions - Fase de Grupos', min: 100001, max: 150000, positions: 8 },
+        { name: 'Champions - Oitavas', min: 150001, max: 200000, positions: 8 },
+        { name: 'Champions - Quartas', min: 200001, max: 300000, positions: 4 },
+        { name: 'Champions - Semifinal', min: 300001, max: 500000, positions: 2 },
+        { name: 'Champions - Final', min: 500001, max: 1000000, positions: 1 },
+        { name: 'Mundial', min: 1000001, max: Infinity, positions: 1 },
+      ];
+
+      // Função para calcular salário líquido (CLT e PJ)
+      const calculateNetSalary = (gross, type) => {
+        let net = gross;
+        if (type === 'CLT') {
+          // INSS (teto de R$ 828,39 em 2025, faixas simplificadas)
+          let inss = 0;
+          if (gross <= 1412) inss = gross * 0.075;
+          else if (gross <= 2666.68) inss = gross * 0.09 - 21.18;
+          else if (gross <= 4000.03) inss = gross * 0.12 - 101.18;
+          else if (gross <= 7786.02) inss = gross * 0.14 - 181.18;
+          else inss = 828.39;
+
+          // IRRF (simplificado, faixas de 2025)
+          let irrf = 0;
+          const taxable = gross - inss - (gross * 0.12); // Aproximação de dependentes/abatimentos
+          if (taxable > 2112) irrf = taxable * 0.075 - 158.40;
+          if (taxable > 2826.65) irrf = taxable * 0.15 - 370.40;
+          if (taxable > 3751.05) irrf = taxable * 0.225 - 651.73;
+          if (taxable > 4664.68) irrf = taxable * 0.275 - 896.36;
+
+          net = gross - inss - irrf;
+        } else if (type === 'PJ') {
+          // Simples Nacional (aproximado, 6% a 15% dependendo da faixa)
+          let tax = gross * 0.06;
+          if (gross > 20000) tax = gross * 0.15;
+          net = gross - tax - (gross * 0.05); // Aproximação de custos administrativos
+        }
+        return Math.max(0, net);
+      };
+
+      // Função para determinar o ranking
+      const determineRank = (net) => {
+        for (let level of tournamentLevels) {
+          if (net >= level.min && net <= level.max) {
+            const range = level.max - level.min;
+            const position = Math.min(
+              level.positions,
+              Math.ceil(((net - level.min) / range) * level.positions) || 1
+            );
+            return { level: level.name, position };
+          }
+        }
+        return { level: 'Sem classificação', position: 0 };
+      };
+
+      // Função para obter localização
+      const getLocation = () => {
+        if (navigator.geolocation) {
+          navigator.geolocation.getCurrentPosition(
+            (position) => {
+              setLocation({
+                lat: position.coords.latitude,
+                lng: position.coords.longitude,
+              });
+            },
+            () => setError('Não foi possível obter a localização.')
+          );
+        } else {
+          setError('Geolocalização não é suportada pelo navegador.');
+        }
+      };
+
+      // Função para carregar o mapa
+      const loadMap = () => {
+        if (location) {
+          const mapDiv = document.createElement('div');
+          mapDiv.id = 'map';
+          mapDiv.style.height = '300px';
+          document.getElementById('map-container').appendChild(mapDiv);
+
+          // Usando Leaflet para o mapa
+          const script = document.createElement('script');
+          script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+          script.onload = () => {
+            const link = document.createElement('link');
+            link.rel = 'stylesheet';
+            link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+            document.head.appendChild(link);
+
+            const map = L.map('map').setView([location.lat, location.lng], 13);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+              attribution: '© OpenStreetMap',
+            }).addTo(map);
+            L.marker([location.lat, location.lng])
+              .addTo(map)
+              .bindPopup('Você está aqui!')
+              .openPopup();
+          };
+          document.body.appendChild(script);
+        }
+      };
+
+      // Calcular salário e ranking ao submeter
+      const handleSubmit = (e) => {
+        e.preventDefault();
+        if (!grossSalary || grossSalary <= 0) {
+          setError('Por favor, insira um salário bruto válido.');
+          return;
+        }
+        setError('');
+        const net = calculateNetSalary(parseFloat(grossSalary), contractType);
+        setNetSalary(net.toFixed(2));
+        setRank(determineRank(net));
+        getLocation();
+      };
+
+      useEffect(() => {
+        if (location) loadMap();
+      }, [location]);
+
+      return (
+        <div className="min-h-screen bg-gray-100 flex flex-col items-center justify-center p-4">
+          <h1 className="text-4xl font-bold mb-6 text-blue-600">Ranqueamento de Salários</h1>
+          <div className="bg-white p-6 rounded-lg shadow-lg w-full max-w-md">
+            <form onSubmit={handleSubmit}>
+              <div className="mb-4">
+                <label className="block text-gray-700">Salário Bruto (R$)</label>
+                <input
+                  type="number"
+                  value={grossSalary}
+                  onChange={(e) => setGrossSalary(e.target.value)}
+                  className="w-full p-2 border rounded"
+                  placeholder="Digite seu salário bruto"
+                  required
+                />
+              </div>
+              <div className="mb-4">
+                <label className="block text-gray-700">Tipo de Contrato</label>
+                <select
+                  value={contractType}
+                  onChange={(e) => setContractType(e.target.value)}
+                  className="w-full p-2 border rounded"
+                >
+                  <option value="CLT">CLT</option>
+                  <option value="PJ">PJ</option>
+                </select>
+              </div>
+              <button
+                type="submit"
+                className="w-full bg-blue-600 text-white p-2 rounded hover:bg-blue-700"
+              >
+                Calcular
+              </button>
+            </form>
+            {error && <p className="text-red-500 mt-4">{error}</p>}
+            {netSalary && rank && (
+              <div className="mt-6">
+                <h2 className="text-2xl font-semibold">Resultado</h2>
+                <p>Salário Líquido: <strong>R$ {netSalary}</strong></p>
+                <p>
+                  Ranking: <strong>{rank.level}</strong> (Posição {rank.position})
+                </p>
+              </div>
+            )}
+          </div>
+          <div id="map-container" className="mt-6 w-full max-w-md"></div>
+        </div>
+      );
+    };
+
+    ReactDOM.render(<SalaryRanker />, document.getElementById('root'));
+  </script>
+</body>
+</html>
